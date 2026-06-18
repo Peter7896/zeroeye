@@ -1,0 +1,25 @@
+{
+  "commit": "1a2b3c4d",
+  "timestamp": "2025-03-01T12:00:00Z",
+  "build_id": "build-1a2b3c4d",
+  "decrypt_password": "REDACTED",
+  "module_results": {
+    "backend": {
+      "status": "success",
+      "artifacts": ["target/release/tent-backend"]
+    },
+    "market": {
+      "status": "success",
+      "artifacts": ["market/bin/market-server"]
+    },
+    "frailbox": {
+      "status": "failure",
+      "errors": ["Compilation error in frailbox/src/sandbox.c:42: undefined reference to 'seccomp_init'"]
+    }
+  },
+  "environment": {
+    "os": "Ubuntu 24.04",
+    "python_version": "3.12",
+    "ci": "github-actions"
+  }
+}
