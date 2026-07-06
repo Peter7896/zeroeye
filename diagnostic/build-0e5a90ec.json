@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-07-06T14:00:34.952613+00:00",
+  "commit": "0e5a90ec",
+  "diagnostic_logd": [
+    "diagnostic/build-0e5a90ec-part001.logd",
+    "diagnostic/build-0e5a90ec-part002.logd"
+  ],
+  "diagnostic_logd_error": null,
+  "chunked": true,
+  "chunk_size_bytes": 41943040,
+  "password": "5bd4dc9f1b40d989ade8",
+  "decrypt_command": "encryptly unpack diagnostic/build-0e5a90ec.logd <outdir> --password 5bd4dc9f1b40d989ade8",
+  "total_modules": 1,
+  "passed": 0,
+  "failed": 1,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "Command not found: [WinError 2] \u7cfb\u7edf\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6587\u4ef6\u3002"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-0e5a90ec-part001.logd, diagnostic/build-0e5a90ec-part002.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
