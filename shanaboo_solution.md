@@ -1,7 +1,7 @@
  ```diff
 --- a/market/orderbook/orderbook.go
 +++ b/market/orderbook/orderbook.go
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,247 @@
 +package orderbook
 +
 +import (
@@ -11,11 +11,11 @@
 +	"sync"
 +)
 +
-+// ErrMalformedPayload indicates a delta has invalid price, quantity, side, or symbol.
++// ErrMalformedPayload indicates a delta with invalid price, quantity, side, or symbol.
 +var ErrMalformedPayload = errors.New("malformed order book delta payload")
 +
-+// ErrStaleSequence indicates a delta with an out-of-order or stale sequence number.
-+var ErrStaleSequence = errors.New("stale or out-of-order sequence")
++// ErrStaleSequence indicates a delta with a sequence number that is not greater than the current sequence.
++var ErrStaleSequence = errors.New("stale or out-of-order sequence update")
 +
 +// ErrChecksumMismatch indicates a checksum validation failure.
 +var ErrChecksumMismatch = errors.New("checksum mismatch")
@@ -24,187 +24,171 @@
 +type Side int
 +
 +const (
-+	Bid Side = iota
-+	Ask
++	SideBid Side = iota
++	SideAsk
 +)
 +
-+// Level represents a single price level.
++// Level represents a single price level in the order book.
 +type Level struct {
 +	Price    float64
 +	Quantity float64
 +}
 +
-+// Book represents the order book state.
-+type Book struct {
-+	mu sync.RWMutex
-+
++// BookSnapshot represents a full snapshot of the order book.
++type BookSnapshot struct {
 +	Symbol   string
++	Sequence int64
 +	Bids     []Level
 +	Asks     []Level
-+	Sequence int64
 +}
 +
-+// Delta represents a single order book delta update.
++// Delta represents a single update to the order book.
 +type Delta struct {
 +	Symbol   string
 +	Sequence int64
 +	Side     Side
 +	Price    float64
-+	Quantity float64 // zero means remove
++	Quantity float64
 +}
 +
-+// Validate checks if the delta is well-formed.
-+func (d *Delta) Validate() error {
-+	if d.Symbol == "" {
++// OrderBook maintains the current state of an order book for a symbol.
++type OrderBook struct {
++	mu       sync.RWMutex
++	symbol   string
++	sequence int64
++	bids     map[float64]float64 // price -> quantity
++	asks     map[float64]float64 // price -> quantity
++	ready    bool
++}
++
++// NewOrderBook creates a new empty OrderBook.
++func NewOrderBook() *OrderBook {
++	return &OrderBook{
++		bids: make(map[float64]float64),
++		asks: make(map[float64]float64),
++	}
++}
++
++// Symbol returns the book's symbol.
++func (ob *OrderBook) Symbol() string {
++	ob.mu.RLock()
++	defer ob.mu.RUnlock()
++	return ob.symbol
++}
++
++// Sequence returns the current sequence number.
++func (ob *OrderBook) Sequence() int64 {
++	ob.mu.RLock()
++	defer ob.mu.RUnlock()
++	return ob.sequence
++}
++
++// IsReady returns true if the book has received a snapshot.
++func (ob *OrderBook) IsReady() bool {
++	ob.mu.RLock()
++	defer ob.mu.RUnlock()
++	return ob.ready
++}
++
++// Bids returns a copy of the current bids sorted by price descending.
++func (ob *OrderBook) Bids() []Level {
++	ob.mu.RLock()
++	defer ob.mu.RUnlock()
++	return sortedLevels(ob.bids, true)
++}
++
++// Asks returns a copy of the current asks sorted by price ascending.
++func (ob *OrderBook) Asks() []Level {
++	ob.mu.RLock()
++	defer ob.mu.RUnlock()
++	return sortedLevels(ob.asks, false)
++}
++
++// ApplySnapshot applies a full snapshot to the book.
++func (ob *OrderBook) ApplySnapshot(snap BookSnapshot) error {
++	if snap.Symbol == "" {
 +		return fmt.Errorf("%w: empty symbol", ErrMalformedPayload)
 +	}
-+	if d.Price < 0 {
-+		return fmt.Errorf("%w: negative price %v", ErrMalformedPayload, d.Price)
++	if snap.Sequence < 0 {
++		return fmt.Errorf("%w: negative sequence", ErrMalformedPayload)
 +	}
-+	if d.Quantity < 0 {
-+		return fmt.Errorf("%w: negative quantity %v", ErrMalformedPayload, d.Quantity)
++	ob.mu.Lock()
++	defer ob.mu.Unlock()
++	ob.symbol = snap.Symbol
++	ob.sequence = snap.Sequence
++	ob.bids = make(map[float64]float64, len(snap.Bids))
++	ob.asks = make(map[float64]float64, len(snap.Asks))
++	for _, b := range snap.Bids {
++		ob.bids[b.Price] = b.Quantity
 +	}
-+	if d.Side != Bid && d.Side != Ask {
-+		return fmt.Errorf("%w: invalid side %v", ErrMalformedPayload, d.Side)
++	for _, a := range snap.Asks {
++		ob.asks[a.Price] = a.Quantity
 +	}
++	ob.ready = true
 +	return nil
 +}
 +
-+// Snapshot represents a full order book snapshot.
-+type Snapshot struct {
-+	Symbol   string
-+	Sequence int64
-+	Bids     []Level
-+	Asks     []Level
-+ eccentric int64 // checksum placeholder
-+}
-+
-+// NewBook creates a new empty book for a symbol.
-+func NewBook(symbol string) *Book {
-+	return &Book{
-+		Symbol: symbol,
-+		Bids:   make([]Level, 0),
-+		Asks:   make([]Level, 0),
-+	}
-+}
-+
-+// ApplySnapshot replaces the book state with a snapshot.
-+func (b *Book) ApplySnapshot(s Snapshot) {
-+	b.mu.Lock()
-+	defer b.mu.Unlock()
-+	b.Sequence = s.Sequence
-+	b.Bids = make([]Level, len(s.Bids))
-+	b.Asks = make([]Level, len(s.Asks))
-+	copy(b.Bids, s.Bids)
-+	copy(b.Asks, s.Asks)
-+}
-+
-+// ApplyDelta applies a delta to the book. Returns error without mutating on invalid input.
-+func (b *Book) ApplyDelta(d Delta) error {
-+	b.mu.Lock()
-+	defer b.mu.Unlock()
-+
-+	if err := d.Validate(); err != nil {
++// ApplyDelta applies a delta to the book. Returns an non-nil error if the delta is invalid,
++// in which case the book state is preserved.
++func (ob *OrderBook) ApplyDelta(delta Delta) error {
++	if err := ob.validateDelta(delta); err != nil {
 +		return err
 +	}
-+
-+	if d.Sequence <= b.Sequence {
-+		return fmt.Errorf("%w: delta seq %d <= book seq %d", ErrStaleSequence, d.Sequence, b.Sequence)
++	ob.mu.Lock()
++	defer ob.mu.Unlock()
++	if !ob.ready {
++		return fmt.Errorf("book not ready")
++	}
++	if delta.Symbol != ob.symbol {
++		return fmt.Errorf("%w: symbol mismatch expected %s got %s", ErrMalformedPayload, ob.symbol, delta.Symbol)
++	}
++	if delta.Sequence <= ob.sequence {
++		return fmt.Errorf("%w: expected > %d got %d", ErrStaleSequence, ob.sequence, delta.Sequence)
 +	}
 +
-+	levels := b.Asks
-+	if d.Side == Bid {
-+		levels = b.Bids
++	target := ob.asks
++	if delta.Side == SideBid {
++		target = ob.bids
 +	}
-+
-+	// Find and update or remove level
-+	found := false
-+	for i := range levels {
-+		if levels[i].Price == d.Price {
-+			if d.Quantity == 0 {
-+				levels = append(levels[:i], levels[i+1:]...)
-+			} else {
-+				levels[i].Quantity = d.Quantity
-+			}
-+			found = true
-+			break
-+		}
-+	}
-+
-+	if !found && d.Quantity > 0 {
-+		levels = append(levels, Level{Price: d.Price, Quantity: d.Quantity})
-+	}
-+
-+	// Sort levels: bids descending, asks ascending
-+	if d.Side == Bid {
- Consult the user with the following message:
-+
-+	// Update the correct slice
-+	if d.Side == Bid {
-+		b.Bids = levels
++	if delta.Quantity == 0 {
++		delete(target, delta.Price)
 +	} else {
-+		b.Asks = levels
++		target[delta.Price] = delta.Quantity
 +	}
-+
-+	b.Sequence = d.Sequence
++	ob.sequence = delta.Sequence
 +	return nil
 +}
 +
-+// GetState returns a copy of the current book state.
-+func (b *Book) GetState() Book {
-+	b.mu.RLock()
-+	defer b.mu.RUnlock()
-+	return Book{
-+		Symbol:   b.Symbol,
-+		Bids:     append([]Level(nil), b.Bids...),
-+		Asks:     append([]Level(nil), b.Asks...),
-+		Sequence: b.Sequence,
++func (ob *OrderBook) validateDelta(delta Delta) error {
++	if delta.Symbol == "" {
++		return fmt.Errorf("%w: empty symbol", ErrMalformedPayload)
 +	}
++	if delta.Sequence < 0 {
++		return fmt.Errorf("%w: negative sequence", ErrMalformedPayload)
++	}
++	if delta.Price <= 0 {
++		return fmt.Errorf("%w: invalid price %f", ErrMalformedPayload, delta.Price)
++	}
++	if delta.Quantity < 0 {
++		return fmt.Errorf("%w: negative quantity %f", ErrMalformedPayload, delta.Quantity)
++	}
++	if delta.Side != SideBid && delta.Side != SideAsk {
++		return fmt.Errorf("%w: invalid side %d", ErrMalformedPayload, delta.Side)
++	}
++	return nil
 +}
 +
-+// sortLevels sorts price levels in place.
-+func sortLevels(levels []Level, side Side) {
-+	if side == Bid {
-+		sort.Slice(levels, func(i, j int) bool {
++func sortedLevels(m map[float64]float64, desc bool) []Level {
++	levels := make([]Level, 0, len(m))
++	for p, q := range m {
++		levels = append(levels, Level{Price: p, Quantity: q})
++	}
++	sort.Slice(levels, func(i, j int) bool {
++		if desc {
 +			return levels[i].Price > levels[j].Price
-+		})
-+	} else {
-+		sort.Slice(levels, func(i, j int) bool {
-+			return levels[i].Price < levels[j].Price
-+		})
-+	}
-+}
-+
-+// applyDeltaSorted applies a delta with proper sorting.
-+func (b *Book) applyDeltaSorted(d Delta) error {
-+	b.mu.Lock()
-+	defer b.mu.Unlock()
-+
-+	if err := d.Validate(); err != nil {
-+		return err
-+	}
-+
-+	if d.Sequence <= b.Sequence {
-+		return fmt.Errorf("%w: delta seq %d <= book seq %d", ErrStaleSequence, d.Sequence, b.Sequence)
-+	}
-+
-+	levels := b.Asks
-+	if d.Side == Bid {
-+		levels = b.Bids
-+	}
-+
-+	found := false
-+	for i := range levels {
-+		if levels[i].Price == d.Price {
-+			if d.Quantity == 0 {
-+				levels = append(levels[:i], levels[i+1:]...)
-+			} else {
-+				levels[i].Quantity = d.Quantity
-+			}
-+			found = true
-+			break
 +		}
-+	}
-+
-+	if !found && d.Quantity > 0 {
-+		levels = append(levels, Level{Price:
++		return levels[i].Price < levels[j].Price
++	})
++	return levels
++}
+--- a/market/orderbook/orderbook_test
