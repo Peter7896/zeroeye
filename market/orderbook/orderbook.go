@@ -185,4 +185,145 @@ func removeLevel(levels []*types.Level, price decimal.Decimal) []*types.Level {
 		}
 	}
 	return levels
+package orderbook
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+)
+
+// Side represents the side of an order.
+type Side int
+
+const (
+	Bid Side = iota
+	Ask
+)
+
+func (s Side) String() string {
+	switch s {
+	case Bid:
+		return "bid"
+	case Ask:
+		return "ask"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseSide parses a side string.
+func ParseSide(s string) (Side, error) {
+	switch s {
+	case "bid", "BID", "buy", "BUY":
+		return Bid, nil
+	case "ask", "ASK", "sell", "SELL":
+		return Ask, nil
+	default:
+		return -1, fmt.Errorf("invalid side: %s", s)
+	}
+}
+
+// Level represents a single price level in the order book.
+type Level struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBook represents the current state of the order book.
+type OrderBook struct {
+	mu        sync.RWMutex
+	Symbol    string
+	Bids      map[float64]Level
+	Asks      map[float64]Level
+	Sequence  uint64
+}
+
+// NewOrderBook creates a new OrderBook.
+func NewOrderBook(symbol string) *OrderBook {
+	return &OrderBook{
+		Symbol: symbol,
+		Bids:   make(map[float64]Level),
+		Asks:   make(map[float64]Level),
+	}
+}
+
+// Snapshot returns a deep copy of the current book state.
+32 func (ob *OrderBook) Snapshot() *OrderBook {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+
+	snap := NewOrderBook(ob.Symbol)
+	snap.Sequence = ob.Sequence
+	for k, v := range ob.Bids {
+		snap.Bids[k] = v
+	}
+	for k, v := range ob.Asks {
+		snap.Asks[k] = v
+	}
+	return snap
+}
+
+// ApplyDelta applies a delta to the order book.
+func (ob *OrderBook) ApplyDelta(delta Delta) error {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	if delta.Sequence <= ob.Sequence {
+		return fmt.Errorf("stale sequence: got %d, current %d", delta.Sequence, ob.Sequence)
+	}
+
+	switch delta.Side {
+	case Bid:
+		if delta.Quantity == 0 {
+			delete(ob.Bids, delta.Price)
+		} else {
+			ob.Bids[delta.Price] = Level{Price: delta.Price, Quantity: delta.Quantity}
+		}
+	case Ask:
+		if delta.Quantity == 0 {
+			delete(ob.Asks, delta.Price)
+		} else {
+			ob.Asks[delta.Price] = Level{Price: delta.Price, Quantity: delta.Quantity}
+		}
+	default:
+		return fmt.Errorf("invalid side: %v", delta.Side)
+	}
+
+	ob.Sequence = delta.Sequence
+	return nil
+}
+
+// GetSequence returns the current sequence number.
+func (ob *OrderBook) GetSequence() uint64 {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	return ob.Sequence
+}
+
+// Delta represents an order book delta update.
+type Delta struct {
+	Symbol   string
+	Side     Side
+	Price    float64
+	Quantity float64
+	Sequence uint64
+}
+
+// Validate checks if the delta is well-formed.
+func (d Delta) Validate() error {
+	if d.Symbol == "" {
+		return errors.New("symbol cannot be empty")
+	}
+	if d.Price < 0 {
+		return fmt.Errorf("price cannot be negative: %f", d.Price)
+	}
+	if d.Quantity < 0 {
+		return fmt.Errorf("quantity cannot be negative: %f", d.Quantity)
+	}
+	if d.Side != Bid && d.Side != Ask {
+		return fmt.Errorf("invalid side: %v", d.Side)
+	}
+	return nil
+}
 }
