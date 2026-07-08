@@ -155,8 +155,11 @@ func (ob *OrderBook) Close() {
 }
 
 var (
-	ErrBookClosed    = &BookError{"order book is closed"}
-	ErrOrderNotFound = &BookError{"order not found"}
+	ErrBookClosed      = &BookError{"order book is closed"}
+	ErrOrderNotFound   = &BookError{"order not found"}
+	ErrSymbolMismatch  = &BookError{"symbol does not match order book"}
+	ErrInvalidSnapshot = &BookError{"invalid snapshot"}
+	ErrInvalidDelta    = &BookError{"invalid delta"}
 )
 
 type BookError struct {
