@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import argparse
 import datetime
@@ -6,12 +7,14 @@ import getpass
 import json
 import os
 import platform
+import re
+import tempfile
 import shutil
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parent
@@ -438,6 +441,43 @@ def collect_system_info() -> str:
     return "\n".join(lines)
 
 
+def _metadata_redact(text: str) -> str:
+    """Remove known local identifiers from public build output, before JSON encoding."""
+    paths = [(str(ROOT), "<REPO>"), (str(Path.home()), "<HOME>"),
+             (tempfile.gettempdir(), "<TEMP>")]
+    replacements = {}
+    for value, label in paths:
+        if value and value not in ("/", "\\"):
+            for spelling in (value, value.replace("\\", "/"), value.replace("/", "\\")):
+                replacements[spelling.rstrip("/\\")] = label
+    for value in sorted(replacements, key=len, reverse=True):
+        flags = re.IGNORECASE if PureWindowsPath(value).drive else 0
+        text = re.sub(re.escape(value) + r"(?![\w.-])", lambda _: replacements[value], text, flags=flags)
+    for value, label in ((getpass.getuser(), "<USER>"), (platform.node(), "<HOST>")):
+        if value:
+            text = re.sub(r"(?<![\w.-])" + re.escape(value) + r"(?![\w.-])", lambda _: label, text)
+    return text
+
+
+def _metadata_artifact(binary: Optional[str]) -> Optional[str]:
+    """Report only paths inside the repository; omit outside artifacts."""
+    if not binary:
+        return None
+    windows = bool(PureWindowsPath(binary).drive or "\\" in binary)
+    path_class = PureWindowsPath if windows else PurePosixPath
+    path = path_class(binary)
+    if ".." in path.parts or (windows and path.anchor and not path.is_absolute()):
+        return None
+    if path.is_absolute():
+        try:
+            path = path.relative_to(path_class(str(ROOT)))
+        except ValueError:
+            return None
+    if not path.parts or path.is_absolute() or path.drive:
+        return None
+    return path.as_posix()
+
+
 def build_diagnostic_report(
     results: list[tuple[str, bool, float, str, Optional[str]]],
     commit_id: str,
@@ -456,13 +496,13 @@ def build_diagnostic_report(
 
     decrypt_target = logd_relpaths[0] if logd_relpaths and len(logd_relpaths) == 1 else None
     if logd_relpaths and len(logd_relpaths) > 1:
-        decrypt_target = str((DIAGNOSTIC_DIR / f"build-{commit_id}.logd").relative_to(ROOT))
+        decrypt_target = (DIAGNOSTIC_DIR / f"build-{commit_id}.logd").relative_to(ROOT).as_posix()
 
     report = {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "commit": commit_id,
         "diagnostic_logd": diagnostic_logd,
-        "diagnostic_logd_error": logd_error,
+        "diagnostic_logd_error": _metadata_redact(logd_error) if logd_error else None,
         "chunked": chunked,
         "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if chunked else None,
         "password": password,
@@ -478,8 +518,8 @@ def build_diagnostic_report(
                 "name": name,
                 "status": "PASS" if success else "FAIL",
                 "elapsed_seconds": round(elapsed, 3),
-                "artifact": binary,
-                "output": output,
+                "artifact": _metadata_artifact(binary),
+                "output": _metadata_redact(output),
             }
             for name, success, elapsed, output, binary in results
         ],
@@ -592,8 +632,8 @@ def generate_logd(
 
         safe_pw = sr.stdout.strip()
         logd_files = split_diagnostic_logd(logd_path)
-        logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
-        decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else str(logd_path.relative_to(ROOT))
+        logd_relpaths = [path.relative_to(ROOT).as_posix() for path in logd_files]
+        decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else logd_path.relative_to(ROOT).as_posix()
         write_diagnostic_report(
             metadata_path,
             build_diagnostic_report(
@@ -720,7 +760,7 @@ Diagnostic bundle:
         print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
-        print(f"  {color('Not all modules will build. That\'s fine.', Colors.GRAY)}")
+        print(f"  {color('Not all modules will build. That is fine.', Colors.GRAY)}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
 
