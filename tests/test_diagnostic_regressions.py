@@ -1,6 +1,5 @@
-"""Regression fixtures use fake bundle bytes; they do not validate encryption."""
+"""Reference fixtures use fake bytes; producer tests use the audited safe packer."""
 import json
-import subprocess
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -121,39 +120,42 @@ class DiagnosticRegressionTests(unittest.TestCase):
         self.assertTrue(any('leaks local value' in e for e in errors))
         self.assertFalse(any('xy' in e for e in errors))
 
-    def test_generate_logd_contract_with_fake_pack(self):
+    def test_generate_logd_contract_with_safe_pack(self):
+        from tools.safe_logd import unpack_diagnostic_texts
         fake_home = self.root / 'home'
         fake_home.mkdir()
-        def fake_pack(command, **kwargs):
-            self.assertEqual(command[:2], ['fake-encryptly', 'pack'])
-            Path(command[2]).write_bytes(b'fake bundle fixture, not encryption output')
-            return subprocess.CompletedProcess(command, 0, stdout='fixture-password', stderr='')
+        self.logd.unlink()  # Preserve the producer's no-overwrite evidence rule.
+        state = {'commit': '12345678' + 'a' * 32, 'tree': 'b' * 40, 'dirty': False}
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(build, 'ROOT', self.root))
             stack.enter_context(mock.patch.object(build, 'DIAGNOSTIC_DIR', self.diagnostic))
-            stack.enter_context(mock.patch.object(build, 'current_commit_id', return_value='12345678'))
-            stack.enter_context(mock.patch.object(build, 'get_encryptly_bin', return_value=Path('fake-encryptly')))
             stack.enter_context(mock.patch.object(build.Path, 'home', return_value=fake_home))
             stack.enter_context(mock.patch.object(build, 'collect_system_info', return_value='fixture'))
-            subprocess_mock = stack.enter_context(mock.patch.object(build.subprocess, 'run', side_effect=fake_pack))
-            self.assertTrue(build.generate_logd([('module', True, 1, 'source ' + str(self.root / 'src'), str(self.root / 'bin/app'))]))
-            self.assertEqual(subprocess_mock.call_count, 1)
+            stack.enter_context(mock.patch.object(build.subprocess, 'run', side_effect=AssertionError('unexpected process')))
+            self.assertTrue(build.generate_logd(
+                [('module', True, 1, 'source ' + str(self.root / 'src'), str(self.root / 'bin/app'))],
+                provenance={'before': state.copy(), 'after': state.copy()}))
             self.assertEqual(validate_diagnostic_bundle(self.metadata, self.root), [])
         report = json.loads(self.metadata.read_text())
         self.assertEqual(report['modules'][0]['artifact'], 'bin/app')
         self.assertEqual(report['diagnostic_logd'], 'diagnostic/build-12345678.logd')
+        self.assertEqual(report['format'], 'safe-logd-v1')
+        texts = unpack_diagnostic_texts(self.logd, report['password'])
+        self.assertIn('source <REPO>/src', texts['build.log'])
+        self.assertEqual(set(texts), {'build.log', 'build-summary.txt', 'system-info.txt'})
         self.assertFalse((fake_home / '.cache/tent-of-trials/logd-workspace').exists())
 
-    def test_missing_encryptly_records_clear_failure_without_execution(self):
+    def test_missing_safe_packer_records_clear_failure_without_execution(self):
+        self.logd.unlink()
+        state = {'commit': '12345678' + 'a' * 32, 'tree': 'b' * 40, 'dirty': False}
         with mock.patch.object(build, 'ROOT', self.root), \
              mock.patch.object(build, 'DIAGNOSTIC_DIR', self.diagnostic), \
-             mock.patch.object(build, 'current_commit_id', return_value='12345678'), \
-             mock.patch.object(build, 'get_encryptly_bin', return_value=None), \
+             mock.patch('tools.safe_logd.pack_diagnostic_texts', side_effect=ImportError('fixture unavailable safe packer')), \
              mock.patch.object(build.subprocess, 'run', side_effect=AssertionError('unexpected process')):
-            self.assertFalse(build.generate_logd([]))
+            self.assertFalse(build.generate_logd([], provenance={'before': state.copy(), 'after': state.copy()}))
         report = json.loads(self.metadata.read_text())
         self.assertIsNone(report['diagnostic_logd'])
-        self.assertIn('encryptly binary not found', report['diagnostic_logd_error'])
+        self.assertIn('unavailable safe packer', report['diagnostic_logd_error'])
         self.assertTrue(validate_diagnostic_bundle(self.metadata, self.root))
 
 
