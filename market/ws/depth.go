@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/shopspring/decimal"
 	"github.com/tent-of-trials/market/orderbook"
 	"github.com/tent-of-trials/market/types"
 )
@@ -19,9 +20,26 @@ type DepthMessage struct {
 //
 // decimal.Decimal marshals from JSON strings or numbers; the feed is allowed to
 // send either, and an unparseable value must surface as an error rather than a
-// silently zeroed level.
+// silently zeroed level. Quantity must be present and non-null; only an explicit
+// zero is a deletion command. Sequence and checksum are supplied separately by
+// the feed adapter after ToDelta; they are not fields of types.DepthUpdate.
 func ParseDepthDelta(raw []byte) (types.DepthUpdate, error) {
-	var msg DepthMessage
+	// Preserve quantity presence at the wire boundary, as in the stricter helper
+	// in PR #29. Decoding directly into types.Level loses missing/null versus 0.
+	type wireLevel struct {
+		Price    decimal.Decimal  `json:"price"`
+		Quantity *decimal.Decimal `json:"quantity"`
+		Count    int64            `json:"order_count"`
+	}
+	var msg struct {
+		Type    string `json:"type"`
+		Payload *struct {
+			Symbol    types.Symbol `json:"symbol"`
+			Bids      []wireLevel  `json:"bids"`
+			Asks      []wireLevel  `json:"asks"`
+			Timestamp int64        `json:"timestamp"`
+		} `json:"payload"`
+	}
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return types.DepthUpdate{}, err
 	}
@@ -35,15 +53,26 @@ func ParseDepthDelta(raw []byte) (types.DepthUpdate, error) {
 	}
 	// Validate levels at the feed boundary so a bad frame is rejected before it
 	// can reach the book. The book re-validates independently.
+	u := types.DepthUpdate{Symbol: msg.Payload.Symbol, Timestamp: msg.Payload.Timestamp}
 	for _, side := range []struct {
 		name   string
-		levels []types.Level
-	}{{"bid", msg.Payload.Bids}, {"ask", msg.Payload.Asks}} {
+		levels []wireLevel
+		output *[]types.Level
+	}{{"bid", msg.Payload.Bids, &u.Bids}, {"ask", msg.Payload.Asks, &u.Asks}} {
+		if side.levels != nil {
+			*side.output = make([]types.Level, 0, len(side.levels))
+		}
 		for i, l := range side.levels {
 			if !l.Price.IsPositive() {
 				return types.DepthUpdate{}, &FeedError{
 					Event:  msg.Type,
 					Reason: fmt.Sprintf("%s[%d] price must be greater than zero, got %s", side.name, i, l.Price.String()),
+				}
+			}
+			if l.Quantity == nil {
+				return types.DepthUpdate{}, &FeedError{
+					Event:  msg.Type,
+					Reason: fmt.Sprintf("%s[%d] quantity is required and must not be null", side.name, i),
 				}
 			}
 			if l.Quantity.IsNegative() {
@@ -52,14 +81,18 @@ func ParseDepthDelta(raw []byte) (types.DepthUpdate, error) {
 					Reason: fmt.Sprintf("%s[%d] quantity must not be negative, got %s", side.name, i, l.Quantity.String()),
 				}
 			}
+			*side.output = append(*side.output, types.Level{Price: l.Price, Quantity: *l.Quantity, Count: l.Count})
 		}
 	}
-	return *msg.Payload, nil
+	return u, nil
 }
 
 // ToDelta converts a decoded depth frame into a single-level orderbook.Delta.
 //
-// An empty side means "snapshot" and is reported via isSnapshot.
+// A frame with no levels is reported via the existing isSnapshot flag.
+// Sequence and Checksum remain unset: the feed adapter must supply its sequence
+// and optional post-update checksum before ApplyDelta. Do not invent a sequence
+// from arrival order; ApplyDelta rejects missing/stale/gapped sequence values.
 func ToDelta(u types.DepthUpdate) (orderbook.Delta, bool, error) {
 	bids, asks := u.Bids, u.Asks
 	switch {
