@@ -118,6 +118,22 @@ retries require reviewing prior evidence and a fresh committed source revision.
 Stub examples and synthetic unit-test bundles are not real build evidence.
 See [the format, limits and verification guide](docs/safe-logd-format.md).
 
+Validate diagnostic metadata and encrypted log references with:
+
+```sh
+python3 tools/verify_diagnostic_bundle.py diagnostic/build-1a2b3c4d.json  # use your actual commit ID
+python3 -m unittest discover -s tests -t . -v
+```
+
+Public metadata normalizes module artifact paths relative to the repository and
+redacts the current home, repository, temporary directory, username and hostname
+from build output and errors. Outside-repository artifact paths are omitted.
+The validator checks file references, ordered chunk names and metadata; it cannot
+prove that a nonempty `.logd` is a valid encrypted archive. Unit tests use temporary
+fixture bytes for reference checks and the reviewed in-memory packer for producer
+checks. They do not run the bundled `encryptly` or replace the separate real-build
+diagnostic requirement.
+
 ## Bounties
 
 Active bounties are tracked as GitHub issues, find them on the Issues page.
