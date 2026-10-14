@@ -118,6 +118,25 @@ retries require reviewing prior evidence and a fresh committed source revision.
 Stub examples and synthetic unit-test bundles are not real build evidence.
 See [the format, limits and verification guide](docs/safe-logd-format.md).
 
+### Order-book delta validation
+
+Run deterministic order-book and WebSocket feed-helper tests from the repository
+root with Go 1.26 or newer:
+
+```sh
+go test ./market/orderbook ./market/matching ./market/ws
+```
+
+`ws.ApplyDepthDelta` validates JSON fields before calling the order-book helper.
+Each message must include `previous_sequence` matching the book's current
+sequence, a strictly newer `sequence`, and explicit side, price and quantity for
+every update. Quantity zero removes a level; missing or null quantity is an
+error. Snapshot replacement establishes the starting sequence. The helper is
+transport-independent and does not change the server's subscription protocol.
+`MaxDepth` retains only visible levels after each complete batch; deeper levels
+are not cached across batches. If a later deletion exposes a discarded level,
+the caller must supply the new visible level or recover a fresh snapshot.
+
 ## Bounties
 
 Active bounties are tracked as GitHub issues, find them on the Issues page.
