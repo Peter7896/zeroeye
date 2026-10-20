@@ -169,13 +169,17 @@ func (e *BookError) Error() string {
 
 func insertLevel(levels []*types.Level, level *types.Level, desc bool) []*types.Level {
 	levels = append(levels, level)
+	sortLevels(levels, desc)
+	return levels
+}
+
+func sortLevels(levels []*types.Level, desc bool) {
 	sort.Slice(levels, func(i, j int) bool {
 		if desc {
 			return levels[i].Price.GreaterThan(levels[j].Price)
 		}
 		return levels[i].Price.LessThan(levels[j].Price)
 	})
-	return levels
 }
 
 func removeLevel(levels []*types.Level, price decimal.Decimal) []*types.Level {
