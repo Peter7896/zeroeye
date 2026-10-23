@@ -35,6 +35,7 @@ import Data.Text (Text, unpack, pack, toLower, strip)
 import qualified Data.Text as T
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Aeson as A
+import Control.Applicative (liftA2)
 import Control.Monad (forM_, when, unless, void)
 import Data.Bool (bool)
 import Data.Function (on)

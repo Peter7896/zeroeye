@@ -1,0 +1,75 @@
+name: Zeroeye diagnostic validation
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test/diagnostic-bundle-validation
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run diagnostic validator tests
+        run: python3 -m unittest discover -s tests -p 'test_diagnostic_validator.py' -v
+      - name: Install Lua and Haskell build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            lua5.4 \
+            libghc-aeson-dev \
+            libghc-yaml-dev \
+            libghc-unordered-containers-dev \
+            libghc-http-types-dev \
+            libghc-wai-dev \
+            libghc-warp-dev \
+            libghc-wai-extra-dev \
+            libghc-random-dev
+          command -v luac
+          /usr/bin/ghc --version
+          /usr/bin/ghc-pkg list yaml
+      - name: Attempt full upstream build
+        id: build
+        continue-on-error: true
+        run: |
+          # Use Ubuntu's GHC with its matching installed Haskell libraries.
+          PATH="/usr/bin:$PATH" python3 build.py
+      - name: Show diagnostic artifacts
+        if: always()
+        run: |
+          ls -lah diagnostic/ || true
+          find diagnostic -maxdepth 1 -type f -name 'build-*' -print || true
+      - name: Upload diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeroeye-diagnostics
+          path: |
+            diagnostic/build-*.logd
+            diagnostic/build-*.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Commit verified diagnostic pair for bounty review
+        if: steps.build.outcome == 'success'
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:8}"
+          test -s "diagnostic/build-${short_sha}.logd"
+          test -s "diagnostic/build-${short_sha}.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "diagnostic/build-${short_sha}.logd" "diagnostic/build-${short_sha}.json"
+          git diff --cached --quiet && exit 0
+          git commit -m "test: attach matching successful build diagnostics [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+      - name: Fail if upstream build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
