@@ -152,11 +152,12 @@ class BuildDiagnosticTests(unittest.TestCase):
         self.assertFalse(self.metadata.exists())
 
     def test_diagnostic_symlink_refused_for_generate_and_clean(self):
+        """Ensure diagnostic symlinks cannot redirect generation or cleanup."""
         outside = self.tmp / "outside"
         outside.mkdir()
         victim = outside / "build-cafebabe.json"
         victim.write_text("preserve fixture")
-        self.diag.symlink_to(outside, target_is_directory=True)
+        self.require_symlink(self.diag, outside, is_directory=True)
         self.assertFalse(self.generate([]))
         with patch.object(sys, "argv", ["build.py", "--clean", "--module", "backend"]), \
                 patch.object(build, "clean_module") as clean:
@@ -165,23 +166,42 @@ class BuildDiagnosticTests(unittest.TestCase):
         self.assertEqual(victim.read_text(), "preserve fixture")
 
     def test_module_artifact_symlink_cannot_escape_repository(self):
+        """Reject artifact symlinks pointing outside the repository."""
         outside = self.tmp / "outside"
         outside.mkdir()
-        (self.root / "link").symlink_to(outside, target_is_directory=True)
+        self.require_symlink(self.root / "link", outside, is_directory=True)
         self.assertIsNone(build._metadata_artifact("link/app"))
         self.assertIsNone(build._metadata_artifact("../outside/app"))
         self.assertEqual(build._metadata_artifact("backend/target/server"), "backend/target/server")
 
     def test_clean_rejects_symlink_artifact_before_any_module_cleanup(self):
+        """Reject symlinked metadata before performing module cleanup."""
         self.diag.mkdir()
         target = self.tmp / "outside-fixture.json"
         target.write_text("preserve")
-        self.metadata.symlink_to(target)
+        self.require_symlink(self.metadata, target)
         with patch.object(sys, "argv", ["build.py", "--clean", "--module", "backend"]), \
                 patch.object(build, "clean_module") as clean:
             self.assertEqual(build.main(), 1)
         clean.assert_not_called()
         self.assertEqual(target.read_text(), "preserve")
+
+    def require_symlink(self, link, target, *, is_directory=False):
+        """Create a symlink, skipping if Windows denies permission.
+
+        Unexpected filesystem errors are raised normally.
+
+        Args:
+            link (Path): Location of the symbolic link.
+            target (Path): File or directory the link references.
+            is_directory (bool): Whether the target is a directory.
+        """
+        try:
+            link.symlink_to(target, target_is_directory=is_directory)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows symlink privilege unavailable")
+            raise
 
     def test_windows_identity_and_path_case_variants_are_redacted(self):
         with patch.object(build, "ROOT", PureWindowsPath(r"C:\Users\Alice\repo")), \
@@ -192,14 +212,15 @@ class BuildDiagnosticTests(unittest.TestCase):
                              r"user=<USER> host=<HOST> file=<REPO>\src")
 
     def test_resolved_home_and_temp_aliases_and_labelled_secrets_are_redacted(self):
+        """Verify redaction of resolved paths and labelled secrets."""
         actual_home = self.tmp / "real-home"
         actual_temp = self.tmp / "real-temp"
         actual_home.mkdir()
         actual_temp.mkdir()
         alias_home = self.tmp / "home-alias"
         alias_temp = self.tmp / "temp-alias"
-        alias_home.symlink_to(actual_home, target_is_directory=True)
-        alias_temp.symlink_to(actual_temp, target_is_directory=True)
+        self.require_symlink(alias_home, actual_home, is_directory=True)
+        self.require_symlink(alias_temp, actual_temp, is_directory=True)
         with patch.object(build.Path, "home", return_value=alias_home), \
                 patch.object(build.tempfile, "gettempdir", return_value=str(alias_temp)):
             output = build._metadata_redact(f"{actual_home.resolve()}/file {actual_temp.resolve()}/compiler.obj "

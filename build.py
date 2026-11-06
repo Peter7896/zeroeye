@@ -377,13 +377,24 @@ def source_state() -> dict:
 
 
 def _metadata_redact(text: str) -> str:
-    """Remove known local identifiers from public build output, before JSON encoding."""
+    """Redact local identifiers and secrets before JSON encoding.
+
+    Replace repository, home, and temporary paths with placeholders,
+    including resolved symbolic-link targets on the native platform.
+    Avoid resolving Windows drive paths on non-Windows systems.
+
+    Args:
+        text (str): Build output containing potentially sensitive data.
+
+    Returns:
+        str: Output with known identifiers and secrets redacted.
+    """
     paths = [(str(ROOT), "<REPO>"), (str(Path.home()), "<HOME>"),
              (tempfile.gettempdir(), "<TEMP>")]
     replacements = {}
     for value, label in paths:
         spellings = {value}
-        if not PureWindowsPath(value).drive:
+        if not PureWindowsPath(value).drive or sys.platform == "win32":
             try:
                 spellings.add(str(Path(value).resolve()))
             except (OSError, RuntimeError):

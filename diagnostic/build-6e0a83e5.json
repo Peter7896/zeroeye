@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-11-06T00:23:37.760214+00:00",
+  "commit": "6e0a83e5",
+  "format": "safe-logd-v1",
+  "provenance": {
+    "before": {
+      "commit": "6e0a83e55010598217d577730b7c0a559edef0f7",
+      "tree": "3ab745934a4e8af598c4d499df488f4da90c7d05",
+      "dirty": false
+    },
+    "after": {
+      "commit": "6e0a83e55010598217d577730b7c0a559edef0f7",
+      "tree": "3ab745934a4e8af598c4d499df488f4da90c7d05",
+      "dirty": false
+    }
+  },
+  "source_commit": "6e0a83e55010598217d577730b7c0a559edef0f7",
+  "source_tree": "3ab745934a4e8af598c4d499df488f4da90c7d05",
+  "diagnostic_logd": "diagnostic/build-6e0a83e5.logd",
+  "diagnostic_logd_error": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "XGCqgyEpp1QuvQqTAd34U2FCsCpLuZWsf_4OWKFL9XE=",
+  "decrypt_command": "python3 tools/safe_logd.py unpack diagnostic/build-6e0a83e5.logd <outdir> --metadata diagnostic/build-6e0a83e5.json",
+  "total_modules": 1,
+  "passed": 0,
+  "failed": 1,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "Command not found: [WinError 2] The system cannot find the file specified",
+      "output_byte_count": 73,
+      "output_truncated": false,
+      "full_output": "build.log"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-6e0a83e5.logd. This safe-logd-v1 archive is incompatible with Encryptly; use tools/safe_logd.py to decrypt it. This JSON is public metadata including the decryption key, not a signature or confidentiality guarantee. Maintainers may ask you to remove these diagnostic artifacts before merging.",
+  "files": {
+    "system-info.txt": {
+      "bytes": 93,
+      "sha256": "e90a4cf5fc4c0a6c095321fd5eec9c8661747fff6e207cbc34ee1001e59ca8f6"
+    },
+    "build-summary.txt": {
+      "bytes": 288,
+      "sha256": "fdad58588f8363ce3874272bbf1a89fa387430f3abf94a15ce6db0bf1e24f4af"
+    },
+    "build.log": {
+      "bytes": 97,
+      "sha256": "438fdc1d2f2c44fdf1cf5b90797f2a26855a4e4108bddc7cd6b31d3b7f73dcda"
+    }
+  },
+  "artifact_sha256": {
+    "diagnostic/build-6e0a83e5.logd": "16b1f372d3d3609519431273955a03c2e7541666b6e3c8b424de358e8172bd5f"
+  }
+}
