@@ -92,7 +92,7 @@ MODULES = [
         name="frontend",
         language="TypeScript",
         dir=ROOT / "frontend",
-        build_cmd=["npm", "run", "build"],
+        build_cmd=["npm", "run", "build"] if platform.system().lower() != "windows" else ["npm.cmd", "run", "build"],
         clean_cmd=["rm", "-rf", "node_modules", "dist"],
         build_dir=ROOT / "frontend" / "dist",
         env={"NODE_ENV": "production"},
@@ -277,7 +277,7 @@ def build_module(
             print(f"       {color('npm install...', Colors.GRAY)}")
             try:
                 install_result = subprocess.run(
-                    ["npm", "install"],
+                    ["npm", "install"] if _normalize_os() != "windows" else ["npm.cmd", "install"],
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
@@ -384,6 +384,29 @@ def verify_binary(module: Module) -> Optional[str]:
         return str(path)
     return None
 
+
+def redact_string(text: str) -> str:
+    import os
+    if not text:
+        return text
+    # Hide user
+    import getpass
+    user = getpass.getuser()
+    if user:
+        text = text.replace(user, "REDACTED")
+    # Hide host
+    import platform
+    host = platform.node()
+    if host:
+        text = text.replace(host, "REDACTED")
+    # Hide root path using forward slashes
+    root_str = str(ROOT)
+    text = text.replace(root_str, "<repo>")
+    text = text.replace(root_str.replace("\\", "/"), "<repo>")
+    # Use generic relative paths
+    text = text.replace("\\", "/")
+    return text
+
 def run_cmd(cmd: list[str], **kwargs) -> tuple[bool, str]:
     try:
         result = subprocess.run(
@@ -402,8 +425,8 @@ def collect_system_info() -> str:
         "Tent of Trials - System Diagnostic Snapshot",
         "=" * 50,
         f"generated_at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
-        f"hostname: {platform.node()}",
-        f"user: {getpass.getuser()}",
+        f"hostname: REDACTED",
+        f"user: REDACTED",
         f"python: {sys.version}",
         f"platform: {platform.platform()}",
         f"processor: {platform.processor() or 'unknown'}",
@@ -478,8 +501,8 @@ def build_diagnostic_report(
                 "name": name,
                 "status": "PASS" if success else "FAIL",
                 "elapsed_seconds": round(elapsed, 3),
-                "artifact": binary,
-                "output": output,
+                "artifact": redact_string(binary) if binary else binary,
+                "output": redact_string(output) if output else output,
             }
             for name, success, elapsed, output, binary in results
         ],
@@ -576,6 +599,7 @@ def generate_logd(
             text=True,
             timeout=300,
         )
+
         if sr.returncode != 0:
             error = sr.stderr.strip() or sr.stdout.strip() or "encryptly pack failed"
             print(
@@ -584,10 +608,13 @@ def generate_logd(
             )
             if logd_path.exists():
                 logd_path.unlink()
+            
+            # Export metadata even if logd pack failed
             write_diagnostic_report(
                 metadata_path,
                 build_diagnostic_report(results, commit_id, logd_error=error),
             )
+
             return False
 
         safe_pw = sr.stdout.strip()
@@ -720,7 +747,8 @@ Diagnostic bundle:
         print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
-        print(f"  {color('Not all modules will build. That\'s fine.', Colors.GRAY)}")
+        message = color("Not all modules will build. That's fine.", Colors.GRAY)
+        print(f"  {message}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
 
