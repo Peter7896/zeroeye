@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-11-08T01:35:05.051106+00:00",
+  "commit": "fd2b5549",
+  "format": "safe-logd-v1",
+  "provenance": {
+    "before": {
+      "commit": "fd2b5549820a4ba8b837519eef9eebf21695c182",
+      "tree": "61c22a769becf9df958eab85a641a2e75d5f81ac",
+      "dirty": false
+    },
+    "after": {
+      "commit": "fd2b5549820a4ba8b837519eef9eebf21695c182",
+      "tree": "61c22a769becf9df958eab85a641a2e75d5f81ac",
+      "dirty": false
+    }
+  },
+  "source_commit": "fd2b5549820a4ba8b837519eef9eebf21695c182",
+  "source_tree": "61c22a769becf9df958eab85a641a2e75d5f81ac",
+  "diagnostic_logd": "diagnostic/build-fd2b5549.logd",
+  "diagnostic_logd_error": null,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "j4ffc8NnLFWlwEVYi-SDfsy9vg1lERFnBYmm99_nBzk=",
+  "decrypt_command": "python3 tools/safe_logd.py unpack diagnostic/build-fd2b5549.logd <outdir> --metadata diagnostic/build-fd2b5549.json",
+  "total_modules": 3,
+  "passed": 3,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 0.925,
+      "artifact": "market/market",
+      "output": "",
+      "output_byte_count": 0,
+      "output_truncated": false,
+      "full_output": "build.log"
+    },
+    {
+      "name": "compliance",
+      "status": "PASS",
+      "elapsed_seconds": 0.413,
+      "artifact": "compliance/build",
+      "output": "Hinweis: ComplianceAuditor.java verwendet oder \u00fcberschreibt eine veraltete API.\nHinweis: Wiederholen Sie die Kompilierung mit -Xlint:deprecation, um Details zu erhalten.",
+      "output_byte_count": 170,
+      "output_truncated": false,
+      "full_output": "build.log"
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.062,
+      "artifact": null,
+      "output": "Syntax OK",
+      "output_byte_count": 9,
+      "output_truncated": false,
+      "full_output": "build.log"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-fd2b5549.logd. This safe-logd-v1 archive is incompatible with Encryptly; use tools/safe_logd.py to decrypt it. This JSON is public metadata including the decryption key, not a signature or confidentiality guarantee. Maintainers may ask you to remove these diagnostic artifacts before merging.",
+  "files": {
+    "system-info.txt": {
+      "bytes": 97,
+      "sha256": "6ff653327d00e571341774169eb332f5909dab135381abc7628627e3d664a716"
+    },
+    "build-summary.txt": {
+      "bytes": 396,
+      "sha256": "ccb64fb997280a1fbbb505a1c2b90406e90db476c30b41720ceeba298750ec58"
+    },
+    "build.log": {
+      "bytes": 264,
+      "sha256": "ba88d0a31a7439d9f57a721249361548bb1af018efdc7b12963d489727278ed1"
+    }
+  },
+  "artifact_sha256": {
+    "diagnostic/build-fd2b5549.logd": "0908cfda0b68b082995d0160f9b23a0e4743079d2982b651a7dafae753a0c2c1"
+  }
+}
